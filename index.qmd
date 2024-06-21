@@ -1,0 +1,210 @@
+---
+title: "WRAIR AFRICA NIGERIA DASHBOARD | MAY 2024"
+format: dashboard
+theme: lux
+
+---
+
+```{r}
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse,
+               colorspace,
+               plotly,
+               reactable,
+               bslib,
+               bsicons,
+               shiny,
+               here,
+               ggspatial,
+               janitor,
+               spData,
+               sf,
+               units,
+               rgeoboundaries,
+               gapminder,
+               rnaturalearth,
+               countrycode,
+               htmltools,
+               reactable,
+               lubridate,
+               zoo, 
+               dplyr,
+               shinydashboard,
+               BiocManager,
+               scales)
+```
+
+```{r}
+
+prog_targets <-  read_csv(here("data/fy24_targets.csv"))
+
+cascade <- read_csv(here("data/fy24_cascade_may.csv"))
+
+vl_data <-  read_csv(here("data/fy24_vl.csv"))
+```
+
+```{r}
+cascade <- cascade %>% 
+  mutate(
+    period_date = dmy(paste("01", period)),
+    month = month(period_date, label = TRUE, abbr = TRUE),
+    year = year(period_date)
+  ) %>%
+  select(-period_date)
+
+vl_data <- vl_data %>% 
+  mutate(vl_lt1000 = rowSums(select(., vl_lt50, vl_50_199, vl_200_999), na.rm=TRUE)
+  )
+vl_data <- vl_data %>% 
+  mutate(low_lv = rowSums(select(., vl_50_199, vl_200_999), na.rm=TRUE)
+  )
+
+```
+
+```{r}
+# join the data
+
+casc_merge <- cascade %>% 
+  left_join(vl_data, by =c("site" = "site", "period_code" = "period_code"))
+
+```
+
+
+```{r}
+# Create indicator totals
+
+tx_curr <- casc_merge %>%
+  filter(month == "May") %>%  # Filter rows where month is "May"
+  select(tx_curr) %>%         # Select the tx_curr column
+  summarise(total_tx_curr = sum(tx_curr, na.rm = TRUE)) %>% # Sum tx_curr, handling NA values
+  pull(total_tx_curr)         # Extract the resulting value
+
+
+tx_new <- casc_merge %>%
+  select(tx_new) %>%         # Select the tx_new column
+  summarise(total_tx_new = sum(tx_new, na.rm = TRUE)) %>% # Sum tx_new, handling NA values
+  pull(total_tx_new)
+
+hts_tst <- casc_merge %>%
+  select(hts_tst) %>%         # Select the tx_new column
+  summarise(total_hts_tst = sum(hts_tst, na.rm = TRUE)) %>% # Sum tx_new, handling NA values
+  pull(total_hts_tst)
+ 
+hts_pos <- casc_merge %>%
+  select(hts_pos) %>%         # Select the tx_new column
+  summarise(total_hts_pos = sum(hts_pos, na.rm = TRUE)) %>% # Sum tx_new, handling NA values
+  pull(total_hts_pos)
+
+tx_pvls <- casc_merge %>%
+  filter(month == "May") %>%  # Filter rows where month is "May"
+  select(had_vl) %>%         
+  summarise(total_tx_pvls = sum(had_vl, na.rm = TRUE)) %>% 
+  pull(total_tx_pvls)         # Extract the resulting value
+
+tx_pvls_n <- casc_merge %>%
+  filter(month == "May") %>%  # Filter rows where month is "May"
+  select(vl_lt1000) %>%         
+  summarise(total_tx_pvls_n = sum(vl_lt1000, na.rm = TRUE)) %>% 
+  pull(total_tx_pvls_n)         # Extract the resulting value
+
+lowlv <- casc_merge %>%
+  filter(month == "May") %>%  # Filter rows where month is "May"
+  select(low_lv) %>%         
+  summarise(total_low_lv = sum(low_lv, na.rm = TRUE)) %>% 
+  pull(total_low_lv)         # Extract the resulting value
+
+vl_supp <- tx_pvls_n/tx_pvls
+
+vlc <- tx_pvls/tx_curr
+
+ 
+```
+
+
+# PROGRAM CASCADE
+
+## {height=30%}
+
+```{r}
+value_box(
+  title = tags$span("Total Testing", style = "font-size: 30px;"),
+  value = scales::comma(hts_tst),
+  showcase = bsicons::bs_icon("droplet"),
+  theme = "blue"
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("Total Positives", style = "font-size: 30px;"),
+  value = scales::comma(hts_pos),
+  showcase = bsicons::bs_icon("plus-circle-fill"),
+  theme = value_box_theme(bg ="#8B0000")
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("Total New on ART", style = "font-size: 30px;"),
+  value = scales::comma(tx_new),
+  showcase = bsicons::bs_icon("prescription"),
+  theme = value_box_theme(bg ="#518")
+)
+```
+
+## {height=30%}
+
+```{r}
+value_box(
+  title = tags$span("Current on Treatment", style = "font-size: 30px;"),
+  value = scales::comma(tx_curr),
+  showcase = bsicons::bs_icon("people"),
+  theme = value_box_theme(bg ="#002a2a")
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("Had a Viral Load", style = "font-size: 30px;"),
+  value = scales::comma(tx_pvls),
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg ="#004646")
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("Total Suppressed", style = "font-size: 30px;"),
+  value = scales::comma(tx_pvls_n),
+  showcase = bsicons::bs_icon("chevron-double-down"),
+  theme = value_box_theme(bg ="#a9d0b8")
+)
+```
+
+## {height=40%}
+```{r}
+value_box(
+  title = tags$span("VL Coverage", style = "font-size: 30px;"),
+  value = scales::percent(vlc),
+  showcase = bsicons::bs_icon("align-top"),
+  theme = value_box_theme(bg ="#93bdcf")
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("VL Suppression", style = "font-size: 30px;"),
+  value = scales::percent(vl_supp),
+  showcase = bsicons::bs_icon("box-arrow-in-down-right"),
+  theme = value_box_theme(bg ="#0aff76")
+)
+```
+
+```{r}
+value_box(
+  title = tags$span("Low Level Viraemia", style = "font-size: 30px;"),
+  value = scales::comma(lowlv),
+  showcase = bsicons::bs_icon("virus2"),
+  theme = value_box_theme(bg ="#9d0216")
+)
+```
