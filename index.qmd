@@ -117,6 +117,8 @@ vl_supp <- tx_pvls_n/tx_pvls
 
 vlc <- tx_pvls/tx_curr
 
+linkage <- tx_new/hts_pos
+
  
 ```
 
@@ -151,6 +153,19 @@ value_box(
   theme = value_box_theme(bg ="#518")
 )
 ```
+
+```{r}
+value_box(
+  title = tags$span("Linkage to ART", style = "font-size: 30px;"),
+  value = scales::percent(linkage),
+  showcase = bsicons::bs_icon("link-45deg"),
+  theme = value_box_theme(bg ="#006611")
+)
+```
+
+
+
+
 
 ## {height=30%}
 
