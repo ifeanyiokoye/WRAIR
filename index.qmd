@@ -2,7 +2,6 @@
 title: "WRAIR AFRICA NIGERIA DASHBOARD | MAY 2024"
 format: dashboard
 theme: lux
-
 ---
 
 ```{r}
@@ -69,7 +68,6 @@ casc_merge <- cascade %>%
 
 ```
 
-
 ```{r}
 # Create indicator totals
 
@@ -122,10 +120,9 @@ linkage <- tx_new/hts_pos
  
 ```
 
-
 # PROGRAM CASCADE
 
-## {height=30%}
+##  {height="30%"}
 
 ```{r}
 value_box(
@@ -163,15 +160,11 @@ value_box(
 )
 ```
 
-
-
-
-
-## {height=30%}
+##  {height="30%"}
 
 ```{r}
 value_box(
-  title = tags$span("Current on Treatment", style = "font-size: 30px;"),
+  title = tags$span("Current on Treatment*", style = "font-size: 30px;"),
   value = scales::comma(tx_curr),
   showcase = bsicons::bs_icon("people"),
   theme = value_box_theme(bg ="#002a2a")
@@ -196,7 +189,8 @@ value_box(
 )
 ```
 
-## {height=40%}
+##  {height="30%"}
+
 ```{r}
 value_box(
   title = tags$span("VL Coverage", style = "font-size: 30px;"),
@@ -223,3 +217,7 @@ value_box(
   theme = value_box_theme(bg ="#9d0216")
 )
 ```
+
+##  {height="10%"}
+
+**\*Updates coming to TX_CURR numbers**
