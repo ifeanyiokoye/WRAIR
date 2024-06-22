@@ -29,17 +29,29 @@ pacman::p_load(tidyverse,
                zoo, 
                dplyr,
                shinydashboard,
-               BiocManager,
-               scales)
+               fontawesome,
+               scales,
+               readxl,
+               openxlsx,
+               prettydoc,
+               skimr)
 ```
 
-```{r}
+```{r echo=FALSE}
 
 prog_targets <-  read_csv(here("data/fy24_targets.csv"))
 
 cascade <- read_csv(here("data/fy24_cascade_may.csv"))
 
 vl_data <-  read_csv(here("data/fy24_vl.csv"))
+
+
+radet <- read_csv(here("data/may_radet.csv"))
+
+radet <- clean_names(radet)
+
+
+
 ```
 
 ```{r}
@@ -71,11 +83,11 @@ casc_merge <- cascade %>%
 ```{r}
 # Create indicator totals
 
-tx_curr <- casc_merge %>%
-  filter(month == "May") %>%  # Filter rows where month is "May"
-  select(tx_curr) %>%         # Select the tx_curr column
-  summarise(total_tx_curr = sum(tx_curr, na.rm = TRUE)) %>% # Sum tx_curr, handling NA values
-  pull(total_tx_curr)         # Extract the resulting value
+#tx_curr <- casc_merge %>%
+# filter(month == "May") %>%  # Filter rows where month is "May"
+#  select(tx_curr) %>%         # Select the tx_curr column
+#  summarise(total_tx_curr = sum(tx_curr, na.rm = TRUE)) %>% # Sum tx_curr, handling NA values
+#  pull(total_tx_curr)         # Extract the resulting value
 
 
 tx_new <- casc_merge %>%
@@ -113,12 +125,202 @@ lowlv <- casc_merge %>%
 
 vl_supp <- tx_pvls_n/tx_pvls
 
-vlc <- tx_pvls/tx_curr
+# vlc <- tx_pvls/tx_curr
 
 linkage <- tx_new/hts_pos
 
  
 ```
+
+
+```{r}
+# Initial cleaning and parameter setting
+cut_off_dt <- as.Date("2024-05-31", format="%Y-%m-%d")
+
+
+radet <- radet %>% 
+  mutate(facility = ifelse(facility =="ba Nigerian Army Amoured Centre Medical Reception Station Bauchi", "ba 33 Brigade Medical Center Shadawanka", facility)) %>%
+  
+  mutate(patient_status = 
+        case_when(
+          patient_status == "Dead" ~ "Known death",
+          patient_status == "Lost to follow up" ~ "Loss to follow up",
+          patient_status == "Self Transfer" ~ "Self-transfer",
+          patient_status == "Treatment stop" ~ "Stopped treatment",
+          TRUE ~ patient_status),
+        
+        facility =
+          case_when(
+            facility == "82DMSH Enugu" ~ "82 Division Medical Services and Hospital",
+            TRUE ~ facility
+          )
+  )
+
+radet <- radet %>% 
+  rename(sex = gender)
+
+```
+
+```{r}
+# Function to print unique values for each date column
+#inspect_unique_dates <- function(df) {
+ # date_columns <- select(df, contains("date"))
+  #for (col_name in names(date_columns)) {
+   # cat("\nUnique values in", col_name, ":\n")
+    #print(unique(date_columns[[col_name]]))
+  #}
+#}
+
+# Inspect unique values in date columns
+#inspect_unique_dates(radet)
+
+
+
+# Function to convert dates in "dd-MMM-yy" format to Date objects
+convert_dates <- function(date_column) {
+  dmy(date_column)
+}
+
+# Apply the conversion function to each date field dynamically
+radet <- radet %>%
+  mutate(across(contains("date"), ~convert_dates(.), .names = "cleaned_{.col}"))
+
+# Ensure the cleaned dates are in the correct Date format
+radet <- radet %>%
+  mutate(across(contains("cleaned"), as.Date))
+
+# Verify the conversion to Date objects in the correct format
+# head(radet %>% select(contains("cleaned")))
+```
+
+
+
+
+```{r, echo=F, message=FALSE, warning=F}
+# creating required columns, setting cut off date, and cleaning data
+
+
+
+radet <- radet %>% 
+    mutate(
+        
+       status_check =
+           case_when((as.Date(cleaned_last_dispensed_date) + arv_refill_days +28)>=cut_off_dt & patient_status != "Known death" & patient_status !="Transferred out" & patient_status !="Stopped treatment"  ~ "Active",
+                     TRUE ~ "Inactive"),
+         
+         mmd =
+           case_when(
+             is.na(arv_refill_days) ~ NA_character_,
+             arv_refill_days <3 ~ "<3",
+             arv_refill_days >=3 & arv_refill_days <4 ~ "3",
+             arv_refill_days >=4 & arv_refill_days <6 ~ "4-5",
+             arv_refill_days >=6 ~ "6+"),
+         
+        
+        age_group = 
+          case_when(age_group == "04-Jan" ~ "1-4",
+                    age_group == "09-May" ~ "5-9",
+                    age_group == "14-Oct" ~ "10-14",
+                    TRUE ~ age_group
+                    
+                    ),
+           
+         age_ngi =
+           case_when(age <15 ~ "<15",
+                    TRUE ~ "15+"),
+         
+         eligible_vl =
+           case_when((cut_off_dt - as.Date(cleaned_art_start_date)) >180 & status_check == "Active" ~ "Eligible",
+                     TRUE ~ "Ineligible"),
+         
+         current_vl = 
+           case_when(
+             is.na(eligible_vl) ~ NA_character_,
+             eligible_vl == "Ineligible" ~ NA_character_,
+             eligible_vl == "Eligible" & current_vl_result >=1 & (cut_off_dt - as.Date(cleaned_date_of_sample_collection)) <=365 ~ "Current VL",
+             TRUE ~ "No VL"),
+         
+         supp_1000 = 
+           case_when(
+             is.na(current_vl) ~ NA_character_,
+             current_vl == "Current VL" & current_vl_result >0 & current_vl_result <1000 ~ "Suppressed",
+             current_vl == "Current VL" & current_vl_result >0 & current_vl_result >=1000 ~ "Unuppressed",
+             TRUE ~ "No VL"
+           ),
+       
+         supp_50 = 
+           case_when(
+             is.na(current_vl) ~ NA_character_,
+             current_vl == "Current VL" & current_vl_result >0 & current_vl_result <50 ~ "Suppressed",
+             current_vl == "Current VL" & current_vl_result >0 & current_vl_result >=50 ~ "Unuppressed",
+             TRUE ~ "No VL"
+           ),
+         
+         vl_category =
+           case_when(
+             is.na(current_vl_result) ~ NA_character_,
+             current_vl == "Current VL" & current_vl_result >0 & current_vl_result <50 ~ "<50",
+             current_vl == "Current VL" & current_vl_result >=50 & current_vl_result <200 ~ "50-199",
+             current_vl == "Current VL" & current_vl_result >=200 & current_vl_result <1000 ~ "200-999",
+            current_vl == "Current VL" & current_vl_result >=1000 ~ "≥1000"
+           ),
+        
+         vl_monitoring = 
+           case_when(
+             is.na(viral_load_indication)| eligible_vl=="Ineligible" | current_vl =="No VL" ~ NA_character_,
+        viral_load_indication = grepl("baseline", viral_load_indication, ignore.case = TRUE) | grepl("pregnancy", viral_load_indication, ignore.case = TRUE) | grepl("routine", viral_load_indication, ignore.case = TRUE) | grepl("1month", viral_load_indication, ignore.case = TRUE) ~ "Routine", 
+             TRUE ~ "Targeted"
+           ),
+        
+        
+      regimen_line = 
+           case_when(regimen_line == "Adult 1st Line" ~ "1st Line",
+                     regimen_line == "Adult First Line" ~ "1st Line",
+                     regimen_line == "Pediatric 1st Line" ~ "1st Line",
+                     regimen_line == "Pediatric 1st line" ~ "1st Line",
+                     regimen_line == "Pediatric First Line" ~ "1st Line",
+                     regimen_line == "Pediatrics and Adolescent 1st Line <20kg" ~ "1st Line",
+                     regimen_line == "Pediatrics and Adolescent 1st Line >30kg" ~ "1st Line",
+                     regimen_line == "Pediatrics and Adolescent 1st Line 20-30kg" ~ "1st Line",
+                     regimen_line == "Adult 2nd Line" ~ "2nd Line",
+                     regimen_line == "Adult Second Line" ~ "2nd Line",
+                     regimen_line == "Pediatric 2nd Line" ~ "2nd Line",
+                     regimen_line == "Pediatric Second Line" ~ "2nd Line",
+                     regimen_line == "Pediatrics and Adolescent 2nd Line <20kg" ~ "1st Line",
+                     regimen_line == "Pediatrics and Adolescent 2nd Line >30kg" ~ "1st Line",
+                     regimen_line == "Pediatrics and Adolescent 2nd Line 20-30kg" ~ "1st Line",
+                     regimen_line == "Adult Third Line" ~ "3rd Line",
+                     regimen_line == "Adult 3rd Line" ~ "3rd Line",
+                     TRUE ~ regimen_line),
+      
+      
+      
+      sex =
+        case_when(
+          sex == "Other" ~ "Female",
+          sex == "transgender" ~ "Female",
+          TRUE ~ sex),
+      
+       service_status =
+        case_when(
+          is.na(service_status) ~ "Civilian",
+          TRUE ~ service_status
+        )
+   ) 
+
+
+tx_curr <- radet %>%
+  filter(status_check == "Active") %>% 
+  summarise(total_tx_curr = n()) %>% # Count the number of active patients
+  pull(total_tx_curr)                # Extract the resulting value
+
+vlc <- tx_pvls/tx_curr
+
+```
+
+
+
+
 
 # PROGRAM CASCADE
 
@@ -221,3 +423,20 @@ value_box(
 ##  {height="10%"}
 
 **\*Updates coming to TX_CURR numbers**
+
+# TARGETS
+##
+
+
+
+
+
+
+
+
+
+
+
+
+
+
