@@ -34,7 +34,14 @@ pacman::p_load(tidyverse,
                readxl,
                openxlsx,
                prettydoc,
-               skimr)
+               skimr,
+               ggplot2,
+               gganimate,
+               tidyr,
+               readr,
+               gifski,
+               png, 
+               scales)
 ```
 
 ```{r echo=FALSE}
@@ -319,6 +326,156 @@ vlc <- tx_pvls/tx_curr
 ```
 
 
+```{r echo = FALSE, message=FALSE, include = FALSE}
+casc_merge <- casc_merge %>% 
+  select(!contains(".y")) 
+
+# Create a mapping of month abbreviations to numbers
+month_map <- c("Jan" = 1, "Feb" = 2, "Mar" = 3, "Apr" = 4, "May" = 5, "Jun" = 6,
+               "Jul" = 7, "Aug" = 8, "Sep" = 9, "Oct" = 10, "Nov" = 11, "Dec" = 12)
+
+# Convert month to numeric and create date
+casc_merge <- casc_merge %>%
+  mutate(month_num = month_map[month],
+         date = make_date(year, month_num, 1))
+
+
+# Pivot the data to long format
+casc_long <- casc_merge %>%
+  pivot_longer(cols = c(hts_tst, hts_pos, tx_new, tx_curr), names_to = "Indicator", values_to = "Value")
+
+# Ensure all combinations of dates and indicators are present
+all_combinations <- expand.grid(
+  date = seq(min(casc_long$date), max(casc_long$date), by = "month"),
+  Indicator = unique(casc_long$Indicator)
+)
+
+# Merge to get complete data and fill missing values
+casc_long <- full_join(casc_long, all_combinations, by = c("date", "Indicator")) %>%
+  arrange(date, Indicator) %>%
+  fill(Value, .direction = "downup")
+
+# Compute cumulative sum for each indicator
+casc_long <- casc_long %>%
+  group_by(Indicator) %>%
+  arrange(date) %>%
+  mutate(CumulativeValue = round(cumsum(Value)))
+
+# List of indicators
+indicators <- unique(casc_long$Indicator)
+
+# Function to create and save animations for each indicator
+create_animation <- function(indicator) {
+  indicator_data <- casc_long %>% filter(Indicator == indicator)
+  
+  # Create the line chart animation
+   # Create the line chart animation with text labels
+  line_plot <- ggplot(indicator_data, aes(x = date, y = CumulativeValue)) +
+    geom_line(linewidth = 2, color = "darkcyan") +  # Use linewidth instead of size
+    geom_point(size = 3, color = "orangered4") +
+    geom_text(aes(label = CumulativeValue), vjust = -1, size = 5, color = "black", check_overlap = TRUE) +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "1 month", limits = as.Date(c("2023-10-01", "2024-05-01"))) +
+    labs(title = paste('Indicator:', str_to_upper(indicator)), x = 'Date', y = 'Cumulative Value') +
+    transition_reveal(date) +
+    ease_aes('linear') + 
+    theme_minimal()
+    
+  
+  # Save the animation
+  animate(line_plot, nframes = 100, fps = 3, renderer = gifski_renderer(paste0(indicator, "_animation.gif")))
+}
+
+# Apply the function to each indicator
+ invisible(lapply(indicators, create_animation))
+
+```
+
+```{r echo=FALSE, include=FALSE, message=FALSE}
+# Calculate VLC and VLS
+casc_merge <- casc_merge %>%
+  filter(!is.na(had_vl) & !is.na(tx_curr) & !is.na(vl_lt1000)) %>%
+  mutate(vls = vl_lt1000 / had_vl,
+         vlc = had_vl / tx_curr)
+
+# Ensure all combinations of sites and months are present
+all_combinations <- expand.grid(
+  site = unique(casc_merge$site),
+  date = seq(as.Date("2023-10-01"), as.Date("2024-05-01"), by = "month")
+)
+
+# Merge to get complete data and fill missing values
+casc_complete <- full_join(casc_merge, all_combinations, by = c("site", "date")) %>%
+  arrange(site, date) %>%
+  fill(vls, vlc, .direction = "downup")
+
+# Remove rows where had_vl or tx_curr is NA after filling
+casc_complete <- casc_complete %>%
+  filter(!is.na(vls) & !is.na(vlc))
+
+# Define the quadrant boundaries
+vls_boundary <- 0.97
+vlc_boundary <- 0.95
+
+# Create the quadrant chart animation
+quadrant_plot <- ggplot(casc_complete, aes(x = vlc, y = vls, color = site, label = site)) +
+  geom_point(size = 4) +
+  geom_text(vjust = -2, size = 3) + 
+  geom_vline(xintercept = vlc_boundary, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = vls_boundary, linetype = "dashed", color = "red") +
+  labs(title = 'Date: {closest_state}', x = 'Viral Load Coverage (VLC)', y = 'Viral Load Suppression (VLS)') +
+  theme_minimal() +
+  theme(legend.position = "none") + # Remove legend
+  scale_x_continuous(labels = percent) + # Format x-axis as percentage
+  scale_y_continuous(labels = percent) + # Format y-axis as percentage
+  theme(
+    plot.margin = margin(0, 0, 0, 0, "cm"),
+    plot.title = element_text(hjust = 0.5, vjust = -1)) +
+  transition_states(date, transition_length = 1, state_length = 1) +
+  ease_aes('linear')
+
+# Save the animation
+animate(
+  quadrant_plot,
+  nframes = length(unique(casc_complete$date)),
+  fps = 1,
+  width = 2400, height = 800,
+  units = "px",
+  renderer = gifski_renderer("quadrant_animation.gif")
+)
+
+```
+
+
+```{r title = "VLC"}
+
+# Calculate VLC
+casc_merge <- casc_merge %>%
+  filter(!is.na(had_vl) & !is.na(tx_curr)) %>%
+  mutate(vlc = had_vl / tx_curr)
+
+# Filter for May 2024
+casc_may2024 <- casc_merge %>%
+  filter(year == 2024 & month == "May")
+
+# Create the column chart
+vlc_chart <- ggplot(casc_may2024, aes(x = reorder(site, vlc), y = vlc, fill = vlc >= 0.95)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = scales::percent(vlc, accuracy = 1)), 
+            hjust = 1.1, color = "white", size = 3, position = position_dodge(width = 0.9)) +
+  scale_fill_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) + # Remove legend
+  scale_y_continuous(labels = percent) + # Format y-axis as percentage
+  coord_flip() +  # Flip coordinates to make it horizontal
+  labs(title = "Viral Load Coverage (VLC) by Site for May 2024",
+       x = "Site",
+       y = "Viral Load Coverage (VLC)",
+       fill = "VLC >= 95%") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Print the chart
+# print(vlc_chart)
+```
+
 
 
 
@@ -366,7 +523,7 @@ value_box(
 
 ```{r}
 value_box(
-  title = tags$span("Current on Treatment*", style = "font-size: 30px;"),
+  title = tags$span("Current on Treatment", style = "font-size: 30px;"),
   value = scales::comma(tx_curr),
   showcase = bsicons::bs_icon("people"),
   theme = value_box_theme(bg ="#002a2a")
@@ -424,8 +581,29 @@ value_box(
 
 **\*Updates coming to TX_CURR numbers**
 
-# TARGETS
-##
+# MONTHLY PROGRESS BY INDICATOR
+## {height=40%}
+```{r title = "MONTHLY CUMULATIVE PROGRESS FOR TESTING"}
+knitr::include_graphics("hts_tst_animation.gif")
+```
+
+```{r title = "MONTHLY CUMULATIVE PROGRESS FOR CASE IDENTIFICATION"}
+knitr::include_graphics("hts_pos_animation.gif")
+```
+
+```{r title = "MONTHLY CUMULATIVE PROGRESS FOR ART INITIATION"}
+knitr::include_graphics("tx_new_animation.gif")
+```
+
+
+## {height=60%}
+```{r title = "PLOT MONTHLY VLC AND VLS TRANSITIONS BY SITE"}
+knitr::include_graphics("quadrant_animation.gif")
+```
+
+```{r title = "VLC BY SITE"}
+vlc_chart
+```
 
 
 
